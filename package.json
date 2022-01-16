@@ -1,0 +1,16 @@
+{
+  "name": "expr-parser",
+  "version": "1.0.0",
+  "description": "Just an expression parser in js",
+  "main": "index.js",
+  "author": "Mythic-P",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "node .",
+    "test": "node . exp.txt"
+  },
+  "dependencies": {
+    "commander": "^8.3.0"
+  }
+}
