@@ -24,7 +24,7 @@ const PRECEDENCE_TABLE = {
 	[TOKEN_MINUS]: 1,
 	[TOKEN_ASTERISK]: 2,
 	[TOKEN_SLASH]: 2,
-	[TOKEN_PERCENT]: 3
+	[TOKEN_PERCENT]: 2
 }
 
 // 运算符映射表
@@ -36,6 +36,11 @@ const OPERATOR_TABLE = {
 	'%': TOKEN_PERCENT
 }
 
+// 工具类
+const throwError = (line, column, message) => {}
+
+const throwNote = (line, column, note) => {}
+
 class Parser {
 	constructor() {
 		this.source = null
@@ -45,13 +50,9 @@ class Parser {
 
 	parse(source) {
 		this.source = source
-		while (1) {
-			const expr = this.parseExpression()
-			if (!expr) {
-				break
-			}
-			this.evaluate(expr)
-		}
+		const expr = this.parseExpression()
+		console.log(expr)
+		// this.evaluate(expr)
 		console.log('Parse ended!')
 	}
 
@@ -61,11 +62,11 @@ class Parser {
 
 	nextToken() {
 		const length = this.source.length
+		if (this.peekTokens.length >= 1) {
+			return this.peekTokens.shift()
+		}
 		if (this.curPointer >= length) {
 			return null
-		}
-		if (this.peekTokens.length >= 1) {
-			return this.peekTokens.unshift()
 		}
 		this.skipSpaces()
 		const char = this.source.charAt(this.curPointer)
@@ -100,12 +101,12 @@ class Parser {
 	}
 
 	nextNumberLiteral() {
-		let count = 1
+		let count = 0
 		let char = this.source.charAt(this.curPointer)
 
 		while (this.isNumberLiteral(char)) {
 			count++
-			char = this.source.charAt(count)
+			char = this.source.charAt(this.curPointer + count)
 		}
 
 		const value = this.source.substr(this.curPointer, count)
@@ -129,7 +130,8 @@ class Parser {
 	eatToken(type) {
 		const token = this.nextToken()
 		if (token.type !== type) {
-			throw ''
+			// TODO: Use throwError instead of plain string
+			throw `Unexpected token: ${token}, expected type: ${type}`
 		}
 		return token
 	}
@@ -138,7 +140,14 @@ class Parser {
 		if (peekAmount <= 0) {
 			return null
 		}
+		if (this.peekTokens.length >= peekAmount) {
+			const peekPosition = peekAmount - 1
+			return this.peekTokens[peekPosition]
+		}
 		const token = this.nextToken()
+		if (!token) {
+			return null
+		}
 		this.peekTokens.push(token)
 		return token
 	}
@@ -154,25 +163,57 @@ class Parser {
 
 	// 解析表达式
 	parseExpression(precedence = 0) {
+		return this.parseBinaryExpression(precedence)
+	}
+
+	// Primary expression ->
+	// '(' expression ')' |
+	// LITERAL
+	parsePrimaryExpression() {	
 		const token = this.peekToken()
-		if (token.type !== TOKEN_LITERAL) {
-			return this.parseUnaryExpression()
+		if (token.type === TOKEN_LEFT_PAREN) {
+			this.eatToken(TOKEN_LEFT_PAREN)
+			const expr = this.parseExpression()
+			this.eatToken(TOKEN_RIGHT_PAREN)
+			return expr
+		} else if (token.type === TOKEN_LITERAL) {
+			this.eatToken(TOKEN_LITERAL)
+			return this.makeNode(AST_LITERAL, { operand: token.value })
+		}
+		throw `Unexpected token: ${token}`
+	}
+
+	parseBinaryExpression(precedence = 0) {
+		let leftExpr = this.parseUnaryExpression()
+
+		const token = this.peekToken()
+		if (!token) {
+			return leftExpr
 		}
 
-		return this.parseBinaryExpression()
-	}
+		let curPrecedence = this.getPrecedence(token.type)
+		while (curPrecedence > precedence) {
+			let opToken = this.nextToken()
+			const rightExpr = this.parseBinaryExpression(curPrecedence)
 
-	parsePrimaryExpression() {
-		//
-	}
+			leftExpr = this.makeNode(AST_BINARY_EXPRESSION, { lhs: leftExpr, operator: opToken.type, rhs: rightExpr })
 
-	parseBinaryExpression() {}
+			opToken = this.peekToken()
+			if (!opToken) {
+				return leftExpr
+			}
+			curPrecedence = this.getPrecedence(opToken.type)
+		}
+
+		return leftExpr
+	}
 
 	parseUnaryExpression() {
-		const operator = this.nextToken()
-		if (operator.type === TOKEN_LITERAL) {
-			throw ''
+		const token = this.peekToken()
+		if (token.type !== TOKEN_MINUS) {
+			return this.parsePrimaryExpression()
 		}
+		const operator = this.nextToken()
 		const expr = this.parseExpression()
 
 		return this.makeNode(AST_UNARY_EXPRESSION, { operator, expr })
