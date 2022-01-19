@@ -153,7 +153,21 @@ class Parser {
 	}
 
 	// 根据抽象语法树计算表达式的值
-	evaluate(expression) {}
+	evaluate(expression) {
+		switch (expression.type) {
+			case AST_LITERAL:
+				return expression.operand
+			case AST_BINARY_EXPRESSION: {
+				const lhsValue = this.evaluate(expression.lhs)
+				const rhsValue = this.evaluate(expression.rhs)
+				// 
+			}
+			case AST_UNARY_EXPRESSION: {
+				const subExprValue = this.evaluate(expression.expr)
+				// 
+			}
+		}
+	}
 
 	makeNode(type, body) {
 		const node = { type, ...body }
@@ -214,7 +228,7 @@ class Parser {
 			return this.parsePrimaryExpression()
 		}
 		const operator = this.nextToken()
-		const expr = this.parseExpression()
+		const expr = this.parseUnaryExpression()
 
 		return this.makeNode(AST_UNARY_EXPRESSION, { operator, expr })
 	}
