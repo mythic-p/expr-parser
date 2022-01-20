@@ -1,39 +1,46 @@
+/*
+    TODO:
+        1. 添加测试功能，支持单元测试
+        2. 支持多行表达式解析并输出结果
+        3. 支持REPL模式
+*/
+
 const { program } = require('commander')
 const fs = require('fs')
 
 // 词元类型
 const TOKEN_UNKNOWN = 0,
-	TOKEN_PLUS = 1,
-	TOKEN_MINUS = 2,
-	TOKEN_ASTERISK = 3,
-	TOKEN_SLASH = 4,
-	TOKEN_PERCENT = 5,
-	TOKEN_LEFT_PAREN = 6,
-	TOKEN_RIGHT_PAREN = 7
-	TOKEN_LITERAL = 8
+    TOKEN_PLUS = 1,
+    TOKEN_MINUS = 2,
+    TOKEN_ASTERISK = 3,
+    TOKEN_SLASH = 4,
+    TOKEN_PERCENT = 5,
+    TOKEN_LEFT_PAREN = 6,
+    TOKEN_RIGHT_PAREN = 7
+    TOKEN_LITERAL = 8
 
 // 语法树节点
 const AST_UNARY_EXPRESSION = 1,
-	AST_BINARY_EXPRESSION = 2,
-	AST_LITERAL = 3
+    AST_BINARY_EXPRESSION = 2,
+    AST_LITERAL = 3
 
 // 操作符优先级
 // 优先级是对于双目运算符来说
 const PRECEDENCE_TABLE = {
-	[TOKEN_PLUS]: 1,
-	[TOKEN_MINUS]: 1,
-	[TOKEN_ASTERISK]: 2,
-	[TOKEN_SLASH]: 2,
-	[TOKEN_PERCENT]: 2
+    [TOKEN_PLUS]: 1,
+    [TOKEN_MINUS]: 1,
+    [TOKEN_ASTERISK]: 2,
+    [TOKEN_SLASH]: 2,
+    [TOKEN_PERCENT]: 2
 }
 
 // 运算符映射表
 const OPERATOR_TABLE = {
-	'+': TOKEN_PLUS,
-	'-': TOKEN_MINUS,
-	'*': TOKEN_ASTERISK,
-	'/': TOKEN_SLASH,
-	'%': TOKEN_PERCENT
+    '+': TOKEN_PLUS,
+    '-': TOKEN_MINUS,
+    '*': TOKEN_ASTERISK,
+    '/': TOKEN_SLASH,
+    '%': TOKEN_PERCENT
 }
 
 // 工具类
@@ -42,219 +49,291 @@ const throwError = (line, column, message) => {}
 const throwNote = (line, column, note) => {}
 
 class Parser {
-	constructor() {
-		this.source = null
-		this.curPointer = 0
-		this.peekTokens = []
-	}
+    constructor() {
+        this.source = null
+        this.curPointer = 0
+        this.peekTokens = []
+    }
 
-	parse(source) {
-		this.source = source
-		const expr = this.parseExpression()
-		console.log(expr)
-		// this.evaluate(expr)
-		console.log('Parse ended!')
-	}
+    parse(source) {
+        this.source = source
+        const expr = this.parseExpression()
+        this.printExpression(expr)
+        console.log(this.evaluate(expr))
+        console.log('Parse ended!')
+    }
 
-	makeToken(type, value = null) {
-		return { type, value }
-	}
+    makeToken(type, value = null) {
+        return { type, value }
+    }
 
-	nextToken() {
-		const length = this.source.length
-		if (this.peekTokens.length >= 1) {
-			return this.peekTokens.shift()
-		}
-		if (this.curPointer >= length) {
-			return null
-		}
-		this.skipSpaces()
-		const char = this.source.charAt(this.curPointer)
-		if (this.isNumberLiteral(char)) {
-			return this.nextNumberLiteral()
-		} else if (this.isOperator(char)) {
-			return this.nextOperator()
-		} else if (char === '(') {
-			this.curPointer++
-			return this.makeToken(TOKEN_LEFT_PAREN)
-		} else if (char === ')') {
-			this.curPointer++
-			return this.makeToken(TOKEN_RIGHT_PAREN)
-		}
-		throw 'Unknown character: ' + char
-	}
+    nextToken() {
+        const length = this.source.length
+        if (this.peekTokens.length >= 1) {
+            return this.peekTokens.shift()
+        }
+        if (this.curPointer >= length) {
+            return null
+        }
+        this.skipSpaces()
+        const char = this.source.charAt(this.curPointer)
+        if (this.isNumberLiteral(char)) {
+            return this.nextNumberLiteral()
+        } else if (this.isOperator(char)) {
+            return this.nextOperator()
+        } else if (char === '(') {
+            this.curPointer++
+            return this.makeToken(TOKEN_LEFT_PAREN)
+        } else if (char === ')') {
+            this.curPointer++
+            return this.makeToken(TOKEN_RIGHT_PAREN)
+        }
+        throw 'Unknown character: ' + char
+    }
 
-	skipSpaces() {
-		let char = this.source.charAt(this.curPointer)
-		while (char === ' ') {
-			this.curPointer++
-			char = this.source.charAt(this.curPointer)
-		}
-	}
+    skipSpaces() {
+        let char = this.source.charAt(this.curPointer)
+        while (char === ' ') {
+            this.curPointer++
+            char = this.source.charAt(this.curPointer)
+        }
+    }
 
-	isNumberLiteral(character) {
-		return /^[0-9.]$/.test(character)
-	}
+    isNumberLiteral(character) {
+        return /^[0-9.]$/.test(character)
+    }
 
-	isOperator(character) {
-		return /^[+\-*/]$/.test(character)
-	}
+    isOperator(character) {
+        return /^[+\-*/]$/.test(character)
+    }
 
-	nextNumberLiteral() {
-		let count = 0
-		let char = this.source.charAt(this.curPointer)
+    nextNumberLiteral() {
+        let count = 0
+        let char = this.source.charAt(this.curPointer)
 
-		while (this.isNumberLiteral(char)) {
-			count++
-			char = this.source.charAt(this.curPointer + count)
-		}
+        while (this.isNumberLiteral(char)) {
+            count++
+            char = this.source.charAt(this.curPointer + count)
+        }
 
-		const value = this.source.substr(this.curPointer, count)
-		this.curPointer += count
+        const value = parseInt(this.source.substr(this.curPointer, count))
+        this.curPointer += count
 
-		return this.makeToken(TOKEN_LITERAL, value)
-	}
+        return this.makeToken(TOKEN_LITERAL, value)
+    }
 
-	nextOperator() {
-		const char = this.source.charAt(this.curPointer)
-		const type = OPERATOR_TABLE[char]
-		if (!type) {
-			return null
-		}
+    nextOperator() {
+        const char = this.source.charAt(this.curPointer)
+        const type = OPERATOR_TABLE[char]
+        if (!type) {
+            return null
+        }
 
-		this.curPointer++
+        this.curPointer++
 
-		return this.makeToken(type)
-	}
+        return this.makeToken(type)
+    }
 
-	eatToken(type) {
-		const token = this.nextToken()
-		if (token.type !== type) {
-			// TODO: Use throwError instead of plain string
-			throw `Unexpected token: ${token}, expected type: ${type}`
-		}
-		return token
-	}
+    eatToken(type) {
+        const token = this.nextToken()
+        if (token.type !== type) {
+            // TODO: Use throwError instead of plain string
+            throw `Unexpected token: ${token}, expected type: ${type}`
+        }
+        return token
+    }
 
-	peekToken(peekAmount = 1) {
-		if (peekAmount <= 0) {
-			return null
-		}
-		if (this.peekTokens.length >= peekAmount) {
-			const peekPosition = peekAmount - 1
-			return this.peekTokens[peekPosition]
-		}
-		const token = this.nextToken()
-		if (!token) {
-			return null
-		}
-		this.peekTokens.push(token)
-		return token
-	}
+    peekToken(peekAmount = 1) {
+        if (peekAmount <= 0) {
+            return null
+        }
+        if (this.peekTokens.length >= peekAmount) {
+            const peekPosition = peekAmount - 1
+            return this.peekTokens[peekPosition]
+        }
+        const token = this.nextToken()
+        if (!token) {
+            return null
+        }
+        this.peekTokens.push(token)
+        return token
+    }
 
-	// 根据抽象语法树计算表达式的值
-	evaluate(expression) {
-		switch (expression.type) {
-			case AST_LITERAL:
-				return expression.operand
-			case AST_BINARY_EXPRESSION: {
-				const lhsValue = this.evaluate(expression.lhs)
-				const rhsValue = this.evaluate(expression.rhs)
-				// 
-			}
-			case AST_UNARY_EXPRESSION: {
-				const subExprValue = this.evaluate(expression.expr)
-				// 
-			}
-		}
-	}
+    // 根据抽象语法树计算表达式的值
+    evaluate(expression) {
+        switch (expression.type) {
+            case AST_LITERAL:
+                return expression.operand
+            case AST_BINARY_EXPRESSION: {
+                const lhs = this.evaluate(expression.lhs)
+                const rhs = this.evaluate(expression.rhs)
+                const operator = expression.operator
+                return this.evaluateBinaryExpr(operator, lhs, rhs)
+            }
+            case AST_UNARY_EXPRESSION: {
+                const operand = this.evaluate(expression.expr)
+                const operator = expression.operator
+                return this.evaluateUnaryExpr(operator, operand)
+            }
+            default:
+                throw 'Unreachable!'
+        }
+    }
 
-	makeNode(type, body) {
-		const node = { type, ...body }
+    evaluateBinaryExpr(operator, lhs, rhs) {
+        switch (operator) {
+            case TOKEN_PLUS:
+                return lhs + rhs
+            case TOKEN_MINUS:
+                return lhs - rhs
+            case TOKEN_ASTERISK:
+                return lhs * rhs
+            case TOKEN_SLASH:
+                return lhs / rhs
+            case TOKEN_PERCENT:
+                return lhs % rhs
+            default:
+                // TODO: use throwError
+                throw 'Undefined binary operator: ' + operator
+        }
+    }
 
-		return node
-	}
+    evaluateUnaryExpr(operator, operand) {
+        switch (operator) {
+            case TOKEN_MINUS:
+                return -1 * operand
+            default:
+                throw 'Undefined unary operator: ' + operator
+        }
+    }
 
-	// 解析表达式
-	parseExpression(precedence = 0) {
-		return this.parseBinaryExpression(precedence)
-	}
+    printExpression(expr, indent = 0) {
+        let content = ''
+        for (let i = 0; i < indent; i++) {
+            content += ' '
+        }
+        switch (expr.type) {
+            case AST_LITERAL:
+                content += `AST_LITERAL (value=${expr.operand})`
+                break
+            case AST_BINARY_EXPRESSION: {
+                const operator = this.printOperator(expr.operator)
+                content += `AST_BINARY_EXPRESSION (operator ${operator})`
+                console.log(content)
+                this.printExpression(expr.lhs, indent + 2)
+                this.printExpression(expr.rhs, indent + 2)
+                return
+            }
+            case AST_UNARY_EXPRESSION: {
+                const operator = this.printOperator(expr.operator)
+                content += `AST_UNARY_EXPRESSION (operator ${operator})`
+                console.log(content)
+                this.printExpression(expr.expr, indent + 2)
+                return
+            }
+            default:
+                throw 'Unreachable!'
+        }
+        console.log(content)
+    }
 
-	// Primary expression ->
-	// '(' expression ')' |
-	// LITERAL
-	parsePrimaryExpression() {	
-		const token = this.peekToken()
-		if (token.type === TOKEN_LEFT_PAREN) {
-			this.eatToken(TOKEN_LEFT_PAREN)
-			const expr = this.parseExpression()
-			this.eatToken(TOKEN_RIGHT_PAREN)
-			return expr
-		} else if (token.type === TOKEN_LITERAL) {
-			this.eatToken(TOKEN_LITERAL)
-			return this.makeNode(AST_LITERAL, { operand: token.value })
-		}
-		throw `Unexpected token: ${token}`
-	}
+    printOperator(operator) {
+        switch (operator) {
+            case TOKEN_PLUS:
+                return '+'
+            case TOKEN_MINUS:
+                return '-'
+            case TOKEN_ASTERISK:
+                return '*'
+            case TOKEN_SLASH:
+                return '/'
+            case TOKEN_PERCENT:
+                return '%'
+            default:
+                throw 'Unknown operator: ' + operator
+        }
+    }
 
-	parseBinaryExpression(precedence = 0) {
-		let leftExpr = this.parseUnaryExpression()
+    makeNode(type, body) {
+        const node = { type, ...body }
 
-		const token = this.peekToken()
-		if (!token) {
-			return leftExpr
-		}
+        return node
+    }
 
-		let curPrecedence = this.getPrecedence(token.type)
-		while (curPrecedence > precedence) {
-			let opToken = this.nextToken()
-			const rightExpr = this.parseBinaryExpression(curPrecedence)
+    // 解析表达式
+    parseExpression(precedence = 0) {
+        return this.parseBinaryExpression(precedence)
+    }
 
-			leftExpr = this.makeNode(AST_BINARY_EXPRESSION, { lhs: leftExpr, operator: opToken.type, rhs: rightExpr })
+    // Primary expression ->
+    // '(' expression ')' |
+    // LITERAL
+    parsePrimaryExpression() {  
+        const token = this.peekToken()
+        if (token.type === TOKEN_LEFT_PAREN) {
+            this.eatToken(TOKEN_LEFT_PAREN)
+            const expr = this.parseExpression()
+            this.eatToken(TOKEN_RIGHT_PAREN)
+            return expr
+        } else if (token.type === TOKEN_LITERAL) {
+            this.eatToken(TOKEN_LITERAL)
+            return this.makeNode(AST_LITERAL, { operand: token.value })
+        }
+        throw `Unexpected token: ${token}`
+    }
 
-			opToken = this.peekToken()
-			if (!opToken) {
-				return leftExpr
-			}
-			curPrecedence = this.getPrecedence(opToken.type)
-		}
+    parseBinaryExpression(precedence = 0) {
+        let leftExpr = this.parseUnaryExpression()
 
-		return leftExpr
-	}
+        const token = this.peekToken()
+        if (!token) {
+            return leftExpr
+        }
 
-	parseUnaryExpression() {
-		const token = this.peekToken()
-		if (token.type !== TOKEN_MINUS) {
-			return this.parsePrimaryExpression()
-		}
-		const operator = this.nextToken()
-		const expr = this.parseUnaryExpression()
+        let curPrecedence = this.getPrecedence(token.type)
+        while (curPrecedence > precedence) {
+            let opToken = this.nextToken()
+            const rightExpr = this.parseBinaryExpression(curPrecedence)
 
-		return this.makeNode(AST_UNARY_EXPRESSION, { operator, expr })
-	}
+            leftExpr = this.makeNode(AST_BINARY_EXPRESSION, { lhs: leftExpr, operator: opToken.type, rhs: rightExpr })
 
-	getPrecedence(operator) {
-		if (!(operator in PRECEDENCE_TABLE)) {
-			return -1
-		}
-		return PRECEDENCE_TABLE[operator]
-	}
+            opToken = this.peekToken()
+            if (!opToken) {
+                return leftExpr
+            }
+            curPrecedence = this.getPrecedence(opToken.type)
+        }
+
+        return leftExpr
+    }
+
+    parseUnaryExpression() {
+        const token = this.peekToken()
+        if (token.type !== TOKEN_MINUS) {
+            return this.parsePrimaryExpression()
+        }
+        const operator = this.nextToken()
+        const expr = this.parseUnaryExpression()
+
+        return this.makeNode(AST_UNARY_EXPRESSION, { operator: operator.type, expr })
+    }
+
+    getPrecedence(operator) {
+        if (!(operator in PRECEDENCE_TABLE)) {
+            return -1
+        }
+        return PRECEDENCE_TABLE[operator]
+    }
 }
 
 program
-	.argument('<file>', 'expression file to parse')
-	.option('-V, --verbose', 'Output every detail when parsing expression.')
-	.version('0.0.1')
-	.action(file => {
-		const parser = new Parser()
-		const content = fs.readFileSync(file, { encoding: 'utf-8' })
-		// parser.source = content
-		parser.parse(content)
-		// let token = parser.nextToken()
-		// while (token) {
-		// 	console.log(token)
-		// 	token = parser.nextToken()
-		// }
-	})
+    .argument('<file>', 'expression file to parse')
+    .option('-V, --verbose', 'Output every detail when parsing expression.')
+    .version('0.0.1')
+    .action(file => {
+        const parser = new Parser()
+        const content = fs.readFileSync(file, { encoding: 'utf-8' })
+        parser.parse(content)
+    })
 
 program.parse(process.argv)
