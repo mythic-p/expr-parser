@@ -1,8 +1,7 @@
 /*
     TODO:
         1. 添加测试功能，支持单元测试
-        2. 支持多行表达式解析并输出结果
-        3. 支持REPL模式
+        2. 支持REPL模式
 */
 
 const { program } = require('commander')
@@ -56,11 +55,17 @@ class Parser {
     }
 
     parse(source) {
+        let count = 0
         this.source = source
-        const expr = this.parseExpression()
-        this.printExpression(expr)
-        console.log(this.evaluate(expr))
-        console.log('Parse ended!')
+        let token = this.peekToken()
+        while (token) {
+            const expr = this.parseExpression()
+            this.printExpression(expr)
+            console.log(this.evaluate(expr))
+            token = this.peekToken()
+            count++
+        }
+        console.log(`Parse ended! ${count} expressions get evaluated!`)
     }
 
     makeToken(type, value = null) {
@@ -93,7 +98,7 @@ class Parser {
 
     skipSpaces() {
         let char = this.source.charAt(this.curPointer)
-        while (char === ' ') {
+        while (/^[\s\t\n\r]$/.test(char)) {
             this.curPointer++
             char = this.source.charAt(this.curPointer)
         }
