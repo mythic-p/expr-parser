@@ -2,10 +2,12 @@
     TODO:
         1. 添加测试功能，支持单元测试
         2. 支持REPL模式
+        3. 完善错误处理机制
 */
 
 const { program } = require('commander')
 const fs = require('fs')
+const path = require('path')
 
 // 词元类型
 const TOKEN_UNKNOWN = 0,
@@ -55,17 +57,15 @@ class Parser {
     }
 
     parse(source) {
-        let count = 0
+        const expressions = []
         this.source = source
         let token = this.peekToken()
         while (token) {
             const expr = this.parseExpression()
-            this.printExpression(expr)
-            console.log(this.evaluate(expr))
+            expressions.push(expr)
             token = this.peekToken()
-            count++
         }
-        console.log(`Parse ended! ${count} expressions get evaluated!`)
+        return expressions
     }
 
     makeToken(type, value = null) {
@@ -92,6 +92,9 @@ class Parser {
         } else if (char === ')') {
             this.curPointer++
             return this.makeToken(TOKEN_RIGHT_PAREN)
+        } else if (char === '#') {
+            this.skipComment()
+            return this.nextToken()
         }
         throw 'Unknown character: ' + char
     }
@@ -99,6 +102,14 @@ class Parser {
     skipSpaces() {
         let char = this.source.charAt(this.curPointer)
         while (/^[\s\t\n\r]$/.test(char)) {
+            this.curPointer++
+            char = this.source.charAt(this.curPointer)
+        }
+    }
+
+    skipComment() {
+        let char = this.source.charAt(this.curPointer)
+        while (char !== '\n' && this.curPointer < this.source.length) {
             this.curPointer++
             char = this.source.charAt(this.curPointer)
         }
@@ -331,14 +342,54 @@ class Parser {
     }
 }
 
+const runTest = filepath => {
+    const parser = new Parser()
+    const content = fs.readFileSync(file, { encoding: 'utf-8' })
+    const exprs = parser.parse(content)
+    for (const expr of exprs) {
+        const value = parser.evaluate(expr)
+        if (value !== expected) {
+            return false
+        }
+    }
+    return true
+}
+
 program
     .argument('<file>', 'expression file to parse')
-    .option('-V, --verbose', 'Output every detail when parsing expression.')
+    .option('-v, --verbose', 'Output every detail when parsing expression.')
     .version('0.0.1')
     .action(file => {
         const parser = new Parser()
         const content = fs.readFileSync(file, { encoding: 'utf-8' })
-        parser.parse(content)
+        const exprs = parser.parse(content)
+        for (const expr of exprs) {
+            console.log(`Result is ${parser.evaluate(expr)}`)
+        }
     })
+
+program
+    .command('test [testDir]')
+    .description('Do unit testing')
+    .action((testDir) => {
+        const unitTestsDir = testDir || './tests'
+        const testFiles = fs.readdirSync(unitTestsDir)
+        let success = 0, failed = 0
+        for (const testFile of testFiles) {
+            const filepath = path.join(unitTestsDir, testFile)
+            const result = runTest(filepath)
+            if (result) {
+                success++
+            } else {
+                failed++
+            }
+        }
+        console.log(`Unit testing running complete, Total tests: ${testFiles.length}, Success: ${success}, Failed: ${failed}`)
+    })
+
+program
+    .command('repl')
+    .description('Run the expression parser in REPL mode')
+    .action(() => {})
 
 program.parse(process.argv)
