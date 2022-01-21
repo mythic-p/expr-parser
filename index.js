@@ -17,8 +17,9 @@ const TOKEN_UNKNOWN = 0,
     TOKEN_SLASH = 4,
     TOKEN_PERCENT = 5,
     TOKEN_LEFT_PAREN = 6,
-    TOKEN_RIGHT_PAREN = 7
-    TOKEN_LITERAL = 8
+    TOKEN_RIGHT_PAREN = 7,
+    TOKEN_COMMA = 8,
+    TOKEN_LITERAL = 9
 
 // 语法树节点
 const AST_UNARY_EXPRESSION = 1,
@@ -44,16 +45,48 @@ const OPERATOR_TABLE = {
     '%': TOKEN_PERCENT
 }
 
-// 工具类
-const throwError = (line, column, message) => {}
+class Reporter {
+    constructor(source) {
+        // 记录每一行的开始索引，用于打印信息
+        // 使用二分查找
+        this.linesInfo = []
+    }
 
-const throwNote = (line, column, note) => {}
+    reportError(column, line, error) {
+        this.reportInfo(column, line, error)
+    }
+
+    reportNote(column, line, note) {
+        this.reportInfo(column, line, note)
+    }
+
+    reportWarning(column, line, warning) {
+        this.reportInfo(column, line, warning)
+    }
+
+    reportInfo(column, line, message) {}
+}
 
 class Parser {
     constructor() {
         this.source = null
         this.curPointer = 0
         this.peekTokens = []
+        this.curLine = 1
+        this.curColumn = 1
+        this.reporter = new Reporter()
+    }
+
+    throwError(error) {
+        this.reporter.reportError(this.curColumn, this.curLine, error)
+    }
+
+    throwNote(note) {
+        this.reporter.reportNote(this.curColumn, this.curLine, note)
+    }
+
+    throwWarning(warning) {
+        this.reporter.reportWarning(this.curColumn, this.curLine, warning)
     }
 
     parse(source) {
@@ -61,8 +94,12 @@ class Parser {
         this.source = source
         let token = this.peekToken()
         while (token) {
-            const expr = this.parseExpression()
-            expressions.push(expr)
+            if (token.type === TOKEN_COMMA) {
+                this.eatToken(TOKEN_COMMA)
+            } else {
+                const expr = this.parseExpression()
+                expressions.push(expr)
+            }
             token = this.peekToken()
         }
         return expressions
@@ -95,6 +132,9 @@ class Parser {
         } else if (char === '#') {
             this.skipComment()
             return this.nextToken()
+        } else if (char === ',') {
+            this.curPointer++
+            return this.makeToken(TOKEN_COMMA)
         }
         throw 'Unknown character: ' + char
     }
@@ -102,6 +142,12 @@ class Parser {
     skipSpaces() {
         let char = this.source.charAt(this.curPointer)
         while (/^[\s\t\n\r]$/.test(char)) {
+            if (char === '\n') {
+                this.curLine++
+                this.curColumn = 1
+            } else if (char !== '\r') {
+                this.curColumn++
+            }
             this.curPointer++
             char = this.source.charAt(this.curPointer)
         }
@@ -295,6 +341,7 @@ class Parser {
             this.eatToken(TOKEN_LITERAL)
             return this.makeNode(AST_LITERAL, { operand: token.value })
         }
+        console.log(token, this.curColumn, this.curLine)
         throw `Unexpected token: ${token}`
     }
 
@@ -302,7 +349,7 @@ class Parser {
         let leftExpr = this.parseUnaryExpression()
 
         const token = this.peekToken()
-        if (!token) {
+        if (!token || token.type === TOKEN_COMMA) {
             return leftExpr
         }
 
@@ -314,7 +361,10 @@ class Parser {
             leftExpr = this.makeNode(AST_BINARY_EXPRESSION, { lhs: leftExpr, operator: opToken.type, rhs: rightExpr })
 
             opToken = this.peekToken()
-            if (!opToken) {
+            if (!opToken || opToken.type === TOKEN_COMMA) {
+                if (opToken) {
+                    this.eatToken(TOKEN_COMMA)
+                }
                 return leftExpr
             }
             curPrecedence = this.getPrecedence(opToken.type)
@@ -344,14 +394,21 @@ class Parser {
 
 const runTest = filepath => {
     const parser = new Parser()
-    const content = fs.readFileSync(file, { encoding: 'utf-8' })
+    const content = fs.readFileSync(filepath, { encoding: 'utf-8' })
     const exprs = parser.parse(content)
-    for (const expr of exprs) {
-        const value = parser.evaluate(expr)
-        if (value !== expected) {
+    const matches = content.matchAll(/expect:\s*(-?\d+)/g)
+    const expects = []
+    for (const match of matches) {
+        expects.push(parseInt(match[1]))
+    }
+    for (let i = 0; i < exprs.length; i++) {
+        const value = parser.evaluate(exprs[i])
+        if (value !== expects[i]) {
+            console.log(`Test failed, Unexpected result: ${value}, expect: ${expects[i]}`)
             return false
         }
     }
+    console.log(`Test complete, ${expects.length} subtests`)
     return true
 }
 

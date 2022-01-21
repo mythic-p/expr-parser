@@ -7,8 +7,8 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "start": "node .",
-    "test": "node . exp.txt"
+    "start": "node . exp.txt",
+    "test": "node . test"
   },
   "dependencies": {
     "commander": "^8.3.0"
