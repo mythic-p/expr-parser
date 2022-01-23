@@ -1,14 +1,14 @@
 /*
     TODO:
-        1. 支持REPL模式
-        2. 支持浮点数
-        3. 支持内置数学函数调用
-        4. 支持声明变量，调用变量
+        1. 支持浮点数
+        2. 支持内置数学函数调用
+        3. 支持声明变量，调用变量
 */
 
 const { program } = require('commander')
 const fs = require('fs')
 const path = require('path')
+const readline = require('readline')
 
 // 词元类型
 const TOKEN_EOF = 0,
@@ -80,7 +80,7 @@ const tokenToString = (value, isType = false) => {
 class Reporter {
     constructor() {
         // 记录每一行的开始索引，用于打印信息
-        this.linesInfo = []
+        this.linesInfo = null
     }
 
     reportError(column, line, error) {
@@ -110,6 +110,7 @@ class Reporter {
 
     loadLineInfo(source) {
         this.source = source
+        this.linesInfo = []
 
         let lastIndex = 0
 
@@ -150,11 +151,8 @@ class Interpreter {}
 class Parser {
     constructor() {
         this.source = null
-        this.curPointer = 0
-        this.peekTokens = []
-        this.curLine = 1
-        this.curColumn = 1
         this.reporter = new Reporter()
+        this.resetState()
     }
 
     throwError(error, token = null) {
@@ -193,6 +191,7 @@ class Parser {
         const expressions = []
         this.source = source
         this.reporter.loadLineInfo(source)
+        this.resetState()
         let token = this.peekToken()
         while (token.type !== TOKEN_EOF) {
             if (token.type === TOKEN_COMMA) {
@@ -204,6 +203,13 @@ class Parser {
             token = this.peekToken()
         }
         return expressions
+    }
+
+    resetState() {
+        this.curPointer = 0
+        this.peekTokens = []
+        this.curLine = 1
+        this.curColumn = 1
     }
 
     makeToken(type, value = null) {
@@ -563,6 +569,18 @@ program
 program
     .command('repl')
     .description('Run the expression parser in REPL mode')
-    .action(() => {})
+    .action(() => {
+        const interface = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        })
+        const parser = new Parser()
+        interface.on('line', input => {
+             const exprs = parser.parse(input)
+             for (const expr of exprs) {
+                console.log(parser.evaluate(expr))
+             }
+        })
+    })
 
 program.parse(process.argv)

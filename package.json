@@ -8,7 +8,8 @@
   "private": true,
   "scripts": {
     "start": "node . exp.txt",
-    "test": "node . test"
+    "test": "node . test",
+    "repl": "node . repl"
   },
   "dependencies": {
     "commander": "^8.3.0"
