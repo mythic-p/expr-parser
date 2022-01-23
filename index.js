@@ -1,8 +1,10 @@
 /*
     TODO:
-        1. 添加测试功能，支持单元测试
-        2. 支持REPL模式
-        3. 完善错误处理机制
+        1. 支持REPL模式
+        2. 完善错误处理机制
+        3. 支持浮点数
+        4. 支持内置数学函数调用
+        5. 支持声明变量，调用变量
 */
 
 const { program } = require('commander')
@@ -10,7 +12,7 @@ const fs = require('fs')
 const path = require('path')
 
 // 词元类型
-const TOKEN_UNKNOWN = 0,
+const TOKEN_EOF = 0,
     TOKEN_PLUS = 1,
     TOKEN_MINUS = 2,
     TOKEN_ASTERISK = 3,
@@ -45,28 +47,114 @@ const OPERATOR_TABLE = {
     '%': TOKEN_PERCENT
 }
 
+// 将值转换成对应的字符串内容
+// value可以是词元对象，也可以词元的类型
+// 如果输入的是词元类型，则需要设置isType为true
+const tokenToString = (value, isType) => {
+    switch (isType ? value : value.type) {
+        case TOKEN_PLUS:
+            return '+'
+        case TOKEN_MINUS:
+            return '-'
+        case TOKEN_ASTERISK:
+            return '*'
+        case TOKEN_SLASH:
+            return '/'
+        case TOKEN_PERCENT:
+            return '%'
+        case TOKEN_COMMA:
+            return ','
+        case TOKEN_LITERAL:
+            return token.value
+        case TOKEN_EOF:
+            return '<EOF>'
+        default:
+            throw 'Unimplemented token: ' + token.type
+    }
+}
+
+// 错误报告器
 class Reporter {
-    constructor(source) {
+    constructor() {
         // 记录每一行的开始索引，用于打印信息
         // 使用二分查找
         this.linesInfo = []
     }
 
     reportError(column, line, error) {
-        this.reportInfo(column, line, error)
+        this.reportInfo('error', column, line, error)
     }
 
     reportNote(column, line, note) {
-        this.reportInfo(column, line, note)
+        this.reportInfo('note', column, line, note)
     }
 
     reportWarning(column, line, warning) {
-        this.reportInfo(column, line, warning)
+        this.reportInfo('warning', column, line, warning)
     }
 
-    reportInfo(column, line, message) {}
+    reportInfo(label, column, line, message) {
+        const content = this.findLine(line).trim()
+        console.log(`\t\t${content}`)
+        let arrowStr = '\t\t'
+        for (let i = 0; i < column - 1; i++) {
+            arrowStr += ' '
+        }
+        arrowStr += '^'
+        console.log(arrowStr)
+        console.log(`todo:${line}:${column}: ${label}: ${message}`)
+        throw ''
+    }
+
+    loadLineInfo(source) {
+        this.source = source
+
+        let lastIndex = 0
+
+        for (let i = 0; i < source.length; i++) {
+            const char = source.charAt(i)
+            if (char === '\n') {
+                this.linesInfo.push(lastIndex)
+                lastIndex = i
+            }
+        }
+
+        this.linesInfo.push(lastIndex)
+
+        return true
+    }
+
+    findLine(line) {
+        const totalLines = this.linesInfo.length
+        line--
+        if (line >= totalLines) {
+            return null
+        }
+        let left = 0, right = totalLines - 1
+        let pos
+        while (left !== right) {
+            pos = (left + right) >>> 1
+            if (pos === line) {
+                break
+            } else if (pos > line) {
+                right = pos - 1
+            } else {
+                left = pos + 1
+            }
+        }
+        let endPos = this.source.length
+        if (pos + 1 < totalLines) {
+            endPos = this.linesInfo[pos + 1]
+        }
+        pos = this.linesInfo[pos]
+        return this.source.substring(pos, endPos)
+    }
 }
 
+// 解释器
+class Interpreter {}
+
+// 解析器
 class Parser {
     constructor() {
         this.source = null
@@ -77,21 +165,42 @@ class Parser {
         this.reporter = new Reporter()
     }
 
-    throwError(error) {
-        this.reporter.reportError(this.curColumn, this.curLine, error)
+    throwError(error, token = null) {
+        this.throwInfo(0, error, token)
     }
 
-    throwNote(note) {
-        this.reporter.reportNote(this.curColumn, this.curLine, note)
+    throwNote(note, token = null) {
+        this.throwInfo(1, note, token)
     }
 
-    throwWarning(warning) {
-        this.reporter.reportWarning(this.curColumn, this.curLine, warning)
+    throwWarning(warning, token = null) {
+        this.throwInfo(2, warning, token)
+    }
+
+    throwInfo(type, message, token = null) {
+        let reportFn = null
+        switch (type) {
+            case 0: // error
+                reportFn = this.reporter.reportError
+                break
+            case 1: // note
+                reportFn = this.reporter.reportNote
+                break
+            case 2: // warning
+                reportFn = this.reporter.reportWarning
+                break
+            default:
+                throw 'Unimplemented throw type'
+        }
+        const column = token ? token.column : this.curColumn,
+            line = token ? token.line : this.curLine
+        reportFn.call(this.reporter, column, line, message)
     }
 
     parse(source) {
         const expressions = []
         this.source = source
+        this.reporter.loadLineInfo(source)
         let token = this.peekToken()
         while (token) {
             if (token.type === TOKEN_COMMA) {
@@ -106,7 +215,9 @@ class Parser {
     }
 
     makeToken(type, value = null) {
-        return { type, value }
+        // 存储词元的类型，具体数值
+        // 词元的起始行号和列号
+        return { type, value, column: this.curColumn, line: this.curLine }
     }
 
     nextToken() {
@@ -115,7 +226,7 @@ class Parser {
             return this.peekTokens.shift()
         }
         if (this.curPointer >= length) {
-            return null
+            return this.makeToken(TOKEN_EOF)
         }
         this.skipSpaces()
         const char = this.source.charAt(this.curPointer)
@@ -125,16 +236,22 @@ class Parser {
             return this.nextOperator()
         } else if (char === '(') {
             this.curPointer++
-            return this.makeToken(TOKEN_LEFT_PAREN)
+            const leftParenToken = this.makeToken(TOKEN_LEFT_PAREN)
+            this.curColumn++
+            return leftParenToken
         } else if (char === ')') {
             this.curPointer++
-            return this.makeToken(TOKEN_RIGHT_PAREN)
+            const rightParenToken = this.makeToken(TOKEN_RIGHT_PAREN)
+            this.curColumn++
+            return rightParenToken
         } else if (char === '#') {
             this.skipComment()
             return this.nextToken()
         } else if (char === ',') {
             this.curPointer++
-            return this.makeToken(TOKEN_COMMA)
+            const commaToken = this.makeToken(TOKEN_COMMA)
+            this.curColumn++
+            return commaToken
         }
         throw 'Unknown character: ' + char
     }
@@ -181,7 +298,10 @@ class Parser {
         const value = parseInt(this.source.substr(this.curPointer, count))
         this.curPointer += count
 
-        return this.makeToken(TOKEN_LITERAL, value)
+        const literalToken = this.makeToken(TOKEN_LITERAL, value)
+        this.curColumn += count
+
+        return literalToken
     }
 
     nextOperator() {
@@ -193,14 +313,18 @@ class Parser {
 
         this.curPointer++
 
-        return this.makeToken(type)
+        const operatorToken = this.makeToken(type)
+        this.curColumn++
+
+        return operatorToken
     }
 
     eatToken(type) {
         const token = this.nextToken()
         if (token.type !== type) {
-            // TODO: Use throwError instead of plain string
-            throw `Unexpected token: ${token}, expected type: ${type}`
+            const unexpectedToken = tokenToString(token),
+                expectedToken = tokenToString(type)
+            this.throwError(`Unexpected token: ${unexpectedToken}, expected token: ${expectedToken}`)
         }
         return token
     }
@@ -332,24 +456,24 @@ class Parser {
     // LITERAL
     parsePrimaryExpression() {  
         const token = this.peekToken()
-        if (token.type === TOKEN_LEFT_PAREN) {
+        const type = token ? token.type : -1
+        if (type === TOKEN_LEFT_PAREN) {
             this.eatToken(TOKEN_LEFT_PAREN)
             const expr = this.parseExpression()
             this.eatToken(TOKEN_RIGHT_PAREN)
             return expr
-        } else if (token.type === TOKEN_LITERAL) {
+        } else if (type === TOKEN_LITERAL) {
             this.eatToken(TOKEN_LITERAL)
             return this.makeNode(AST_LITERAL, { operand: token.value })
         }
-        console.log(token, this.curColumn, this.curLine)
-        throw `Unexpected token: ${token}`
+        this.throwError(`Expect a primary expression, but got ${tokenToString(token)}`, token)
     }
 
     parseBinaryExpression(precedence = 0) {
         let leftExpr = this.parseUnaryExpression()
 
         const token = this.peekToken()
-        if (!token || token.type === TOKEN_COMMA) {
+        if (!token || token.type === TOKEN_COMMA || token.type === TOKEN_RIGHT_PAREN) {
             return leftExpr
         }
 
@@ -375,7 +499,7 @@ class Parser {
 
     parseUnaryExpression() {
         const token = this.peekToken()
-        if (token.type !== TOKEN_MINUS) {
+        if (!token || token.type !== TOKEN_MINUS) {
             return this.parsePrimaryExpression()
         }
         const operator = this.nextToken()
