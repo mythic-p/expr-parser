@@ -1,10 +1,9 @@
 /*
     TODO:
         1. 支持REPL模式
-        2. 完善错误处理机制
-        3. 支持浮点数
-        4. 支持内置数学函数调用
-        5. 支持声明变量，调用变量
+        2. 支持浮点数
+        3. 支持内置数学函数调用
+        4. 支持声明变量，调用变量
 */
 
 const { program } = require('commander')
@@ -50,7 +49,7 @@ const OPERATOR_TABLE = {
 // 将值转换成对应的字符串内容
 // value可以是词元对象，也可以词元的类型
 // 如果输入的是词元类型，则需要设置isType为true
-const tokenToString = (value, isType) => {
+const tokenToString = (value, isType = false) => {
     switch (isType ? value : value.type) {
         case TOKEN_PLUS:
             return '+'
@@ -64,12 +63,16 @@ const tokenToString = (value, isType) => {
             return '%'
         case TOKEN_COMMA:
             return ','
+        case TOKEN_LEFT_PAREN:
+            return '('
+        case TOKEN_RIGHT_PAREN:
+            return ')'
         case TOKEN_LITERAL:
             return token.value
         case TOKEN_EOF:
             return '<EOF>'
         default:
-            throw 'Unimplemented token: ' + token.type
+            throw 'Unimplemented token: ' + value
     }
 }
 
@@ -77,7 +80,6 @@ const tokenToString = (value, isType) => {
 class Reporter {
     constructor() {
         // 记录每一行的开始索引，用于打印信息
-        // 使用二分查找
         this.linesInfo = []
     }
 
@@ -126,26 +128,16 @@ class Reporter {
 
     findLine(line) {
         const totalLines = this.linesInfo.length
-        line--
-        if (line >= totalLines) {
+        let pos = line - 1
+        if (pos >= totalLines) {
             return null
         }
-        let left = 0, right = totalLines - 1
-        let pos
-        while (left !== right) {
-            pos = (left + right) >>> 1
-            if (pos === line) {
-                break
-            } else if (pos > line) {
-                right = pos - 1
-            } else {
-                left = pos + 1
-            }
-        }
+
         let endPos = this.source.length
         if (pos + 1 < totalLines) {
             endPos = this.linesInfo[pos + 1]
         }
+
         pos = this.linesInfo[pos]
         return this.source.substring(pos, endPos)
     }
@@ -202,7 +194,7 @@ class Parser {
         this.source = source
         this.reporter.loadLineInfo(source)
         let token = this.peekToken()
-        while (token) {
+        while (token.type !== TOKEN_EOF) {
             if (token.type === TOKEN_COMMA) {
                 this.eatToken(TOKEN_COMMA)
             } else {
@@ -283,7 +275,7 @@ class Parser {
     }
 
     isOperator(character) {
-        return /^[+\-*/]$/.test(character)
+        return /^[+\-*/%]$/.test(character)
     }
 
     nextNumberLiteral() {
@@ -323,8 +315,8 @@ class Parser {
         const token = this.nextToken()
         if (token.type !== type) {
             const unexpectedToken = tokenToString(token),
-                expectedToken = tokenToString(type)
-            this.throwError(`Unexpected token: ${unexpectedToken}, expected token: ${expectedToken}`)
+                expectedToken = tokenToString(type, true)
+            this.throwError(`Unexpected token: ${unexpectedToken}, expect token: ${expectedToken}`)
         }
         return token
     }
@@ -338,8 +330,8 @@ class Parser {
             return this.peekTokens[peekPosition]
         }
         const token = this.nextToken()
-        if (!token) {
-            return null
+        if (token.type === TOKEN_EOF) {
+            return token
         }
         this.peekTokens.push(token)
         return token
@@ -375,7 +367,7 @@ class Parser {
             case TOKEN_ASTERISK:
                 return lhs * rhs
             case TOKEN_SLASH:
-                return lhs / rhs
+                return (lhs / rhs) >>> 0
             case TOKEN_PERCENT:
                 return lhs % rhs
             default:
@@ -473,7 +465,7 @@ class Parser {
         let leftExpr = this.parseUnaryExpression()
 
         const token = this.peekToken()
-        if (!token || token.type === TOKEN_COMMA || token.type === TOKEN_RIGHT_PAREN) {
+        if (token.type === TOKEN_EOF || token.type === TOKEN_COMMA || token.type === TOKEN_RIGHT_PAREN) {
             return leftExpr
         }
 
@@ -485,8 +477,8 @@ class Parser {
             leftExpr = this.makeNode(AST_BINARY_EXPRESSION, { lhs: leftExpr, operator: opToken.type, rhs: rightExpr })
 
             opToken = this.peekToken()
-            if (!opToken || opToken.type === TOKEN_COMMA) {
-                if (opToken) {
+            if (opToken.type === TOKEN_EOF || opToken.type === TOKEN_COMMA || opToken.type === TOKEN_RIGHT_PAREN) {
+                if (opToken.type === TOKEN_COMMA) {
                     this.eatToken(TOKEN_COMMA)
                 }
                 return leftExpr
@@ -499,7 +491,7 @@ class Parser {
 
     parseUnaryExpression() {
         const token = this.peekToken()
-        if (!token || token.type !== TOKEN_MINUS) {
+        if (token.type !== TOKEN_MINUS) {
             return this.parsePrimaryExpression()
         }
         const operator = this.nextToken()
