@@ -1,8 +1,7 @@
 /*
     TODO:
-        1. 支持浮点数
-        2. 支持内置数学函数调用
-        3. 支持声明变量，调用变量
+        1. 支持内置数学函数调用
+        2. 支持声明变量，调用变量
 */
 
 const { program } = require('commander')
@@ -21,6 +20,10 @@ const TOKEN_EOF = 0,
     TOKEN_RIGHT_PAREN = 7,
     TOKEN_COMMA = 8,
     TOKEN_LITERAL = 9
+
+// 字面量属性
+const LITERAL_FLAG_INTEGER = 0x01,
+    LITERAL_FLAG_DOUBLE = 0x02
 
 // 语法树节点
 const AST_UNARY_EXPRESSION = 1,
@@ -67,8 +70,10 @@ const tokenToString = (value, isType = false) => {
             return '('
         case TOKEN_RIGHT_PAREN:
             return ')'
-        case TOKEN_LITERAL:
-            return token.value
+        case TOKEN_LITERAL: {
+            const { value } = token.value
+            return value
+        }
         case TOKEN_EOF:
             return '<EOF>'
         default:
@@ -288,15 +293,26 @@ class Parser {
         let count = 0
         let char = this.source.charAt(this.curPointer)
 
+        let flags = LITERAL_FLAG_INTEGER
+
         while (this.isNumberLiteral(char)) {
             count++
             char = this.source.charAt(this.curPointer + count)
+            if (char === '.') {
+                if (flags & LITERAL_FLAG_INTEGER) {
+                    flags &= ~LITERAL_FLAG_INTEGER
+                    flags |= LITERAL_FLAG_DOUBLE
+                } else {
+                    this.throwError('Lexical error: Invalid number format!')
+                }
+            }
         }
 
-        const value = parseInt(this.source.substr(this.curPointer, count))
+        const parseFn = (flags & LITERAL_FLAG_INTEGER) ? parseInt : parseFloat
+        const value = parseFn(this.source.substr(this.curPointer, count))
         this.curPointer += count
 
-        const literalToken = this.makeToken(TOKEN_LITERAL, value)
+        const literalToken = this.makeToken(TOKEN_LITERAL, { value, flags })
         this.curColumn += count
 
         return literalToken
@@ -346,8 +362,10 @@ class Parser {
     // 根据抽象语法树计算表达式的值
     evaluate(expression) {
         switch (expression.type) {
-            case AST_LITERAL:
-                return expression.operand
+            case AST_LITERAL: {
+                const { operand, flags } = expression
+                return { operand, flags }
+            }
             case AST_BINARY_EXPRESSION: {
                 const lhs = this.evaluate(expression.lhs)
                 const rhs = this.evaluate(expression.rhs)
@@ -365,17 +383,35 @@ class Parser {
     }
 
     evaluateBinaryExpr(operator, lhs, rhs) {
+        const leftOperand = lhs.operand,
+            leftFlags = lhs.flags,
+            rightOperand = rhs.operand,
+            rightFlags = rhs.flags
         switch (operator) {
             case TOKEN_PLUS:
-                return lhs + rhs
+                return leftOperand + rightOperand
             case TOKEN_MINUS:
-                return lhs - rhs
+                return leftOperand - rightOperand
             case TOKEN_ASTERISK:
-                return lhs * rhs
-            case TOKEN_SLASH:
-                return (lhs / rhs) >>> 0
-            case TOKEN_PERCENT:
-                return lhs % rhs
+                return leftOperand * rightOperand
+            case TOKEN_SLASH: {
+                const isIntegerDivision = this.hasFlag(leftFlags, LITERAL_FLAG_INTEGER) && this.hasFlag(rightFlags, LITERAL_FLAG_INTEGER)
+                if (isIntegerDivision) {
+                    return (leftOperand / rightOperand) >>> 0                    
+                }
+                return leftOperand / rightOperand
+            }
+            case TOKEN_PERCENT: {
+                const lhsIsInteger = this.hasFlag(leftFlags, LITERAL_FLAG_INTEGER),
+                    rhsIsInteger = this.hasFlag(rightFlags, LITERAL_FLAG_INTEGER)
+                if (!lhsIsInteger || !rhsIsInteger) {
+                    this.throwError('Modulo operation can only apply on integer value!')
+                    this.throwNote('The left-hand side value type is <TODO>')
+                    this.throwNote('The right-hand side value type is <TODO>')
+                    return
+                }
+                return leftOperand % rightOperand
+            }
             default:
                 // TODO: use throwError
                 throw 'Undefined binary operator: ' + operator
@@ -438,6 +474,10 @@ class Parser {
         }
     }
 
+    hasFlag(flags, flag) {
+        return flags & flag === flag
+    }
+
     makeNode(type, body) {
         const node = { type, ...body }
 
@@ -462,7 +502,8 @@ class Parser {
             return expr
         } else if (type === TOKEN_LITERAL) {
             this.eatToken(TOKEN_LITERAL)
-            return this.makeNode(AST_LITERAL, { operand: token.value })
+            const { value, flags } = token.value
+            return this.makeNode(AST_LITERAL, { operand: value, flags })
         }
         this.throwError(`Expect a primary expression, but got ${tokenToString(token)}`, token)
     }
