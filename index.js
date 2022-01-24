@@ -19,7 +19,9 @@ const TOKEN_EOF = 0,
     TOKEN_LEFT_PAREN = 6,
     TOKEN_RIGHT_PAREN = 7,
     TOKEN_COMMA = 8,
-    TOKEN_LITERAL = 9
+    TOKEN_VAR = 9,
+    TOKEN_LITERAL = 10,
+    TOKEN_IDENTIFIER = 11
 
 // 字面量属性
 const LITERAL_FLAG_INTEGER = 0x01,
@@ -47,6 +49,13 @@ const OPERATOR_TABLE = {
     '*': TOKEN_ASTERISK,
     '/': TOKEN_SLASH,
     '%': TOKEN_PERCENT
+}
+
+// 内置数学函数
+const builtinFns = {
+    'cos': Math.cos,
+    'sin': Math.sin,
+    'sqrt': Math.sqrt,
 }
 
 // 将值转换成对应的字符串内容
@@ -81,26 +90,37 @@ const tokenToString = (value, isType = false) => {
     }
 }
 
+const literalFlagsToString = flags => {
+    if (flags & LITERAL_FLAG_INTEGER) {
+        return 'Integer'
+    } else if (flags & LITERAL_FLAG_DOUBLE) {
+        return 'Double'
+    }
+    return '<TODO>'
+}
+
 // 错误报告器
 class Reporter {
     constructor() {
         // 记录每一行的开始索引，用于打印信息
         this.linesInfo = null
+        this.notes = []
     }
 
     reportError(column, line, error) {
-        this.reportInfo('error', column, line, error)
+        this.reportInfo('error', column, line, error, true)
     }
 
-    reportNote(column, line, note) {
-        this.reportInfo('note', column, line, note)
+    reportNote(column, line, message) {
+        const note = { column, line, message }
+        this.notes.push(note)
     }
 
     reportWarning(column, line, warning) {
         this.reportInfo('warning', column, line, warning)
     }
 
-    reportInfo(label, column, line, message) {
+    reportInfo(label, column, line, message, interrupt = false) {
         const content = this.findLine(line).trim()
         console.log(`\t\t${content}`)
         let arrowStr = '\t\t'
@@ -109,8 +129,13 @@ class Reporter {
         }
         arrowStr += '^'
         console.log(arrowStr)
-        console.log(`todo:${line}:${column}: ${label}: ${message}`)
-        throw ''
+        console.log(`todo:${line}:${column}: ${label}: ${message}\n`)
+        if (interrupt) {
+            for (const note of this.notes) {
+                this.reportInfo('note', note.column, note.line, note.message)
+            }
+            throw ''
+        }
     }
 
     loadLineInfo(source) {
@@ -237,6 +262,8 @@ class Parser {
             return this.nextNumberLiteral()
         } else if (this.isOperator(char)) {
             return this.nextOperator()
+        } else if (this.isIdentifier(char, true)) {
+            return this.nextIdentifier()
         } else if (char === '(') {
             this.curPointer++
             const leftParenToken = this.makeToken(TOKEN_LEFT_PAREN)
@@ -289,6 +316,14 @@ class Parser {
         return /^[+\-*/%]$/.test(character)
     }
 
+    isIdentifier(character, isStart = false) {
+        if (isStart) {
+            return /^[a-zA-Z_]$/.test(character)            
+        }
+
+        return /^[a-zA-Z0-9_]$/.test(character)
+    }
+
     nextNumberLiteral() {
         let count = 0
         let char = this.source.charAt(this.curPointer)
@@ -333,6 +368,10 @@ class Parser {
         return operatorToken
     }
 
+    nextIdentifier() {
+        // TODO
+    }
+
     eatToken(type) {
         const token = this.nextToken()
         if (token.type !== type) {
@@ -363,8 +402,7 @@ class Parser {
     evaluate(expression) {
         switch (expression.type) {
             case AST_LITERAL: {
-                const { operand, flags } = expression
-                return { operand, flags }
+                return expression
             }
             case AST_BINARY_EXPRESSION: {
                 const lhs = this.evaluate(expression.lhs)
@@ -387,7 +425,7 @@ class Parser {
             leftFlags = lhs.flags,
             rightOperand = rhs.operand,
             rightFlags = rhs.flags
-        switch (operator) {
+        switch (operator.type) {
             case TOKEN_PLUS:
                 return leftOperand + rightOperand
             case TOKEN_MINUS:
@@ -405,23 +443,23 @@ class Parser {
                 const lhsIsInteger = this.hasFlag(leftFlags, LITERAL_FLAG_INTEGER),
                     rhsIsInteger = this.hasFlag(rightFlags, LITERAL_FLAG_INTEGER)
                 if (!lhsIsInteger || !rhsIsInteger) {
-                    this.throwError('Modulo operation can only apply on integer value!')
-                    this.throwNote('The left-hand side value type is <TODO>')
-                    this.throwNote('The right-hand side value type is <TODO>')
-                    return
+                    const lhsType = literalFlagsToString(leftFlags),
+                        rhsType = literalFlagsToString(rightFlags)
+                    this.throwNote(`The left-hand side value type is ${lhsType}`, lhs)
+                    this.throwNote(`The right-hand side value type is ${rhsType}`, rhs)
+                    this.throwError('Modulo operation can only apply on integer value!', operator)
                 }
                 return leftOperand % rightOperand
             }
             default:
-                // TODO: use throwError
-                throw 'Undefined binary operator: ' + operator
+                this.throwError(`Undefined binary operator: ${tokenToString(operator)}`, operator)
         }
     }
 
     evaluateUnaryExpr(operator, operand) {
-        switch (operator) {
+        switch (operator.type) {
             case TOKEN_MINUS:
-                return -1 * operand
+                return -1 * operand.operand
             default:
                 throw 'Undefined unary operator: ' + operator
         }
@@ -437,7 +475,7 @@ class Parser {
                 content += `AST_LITERAL (value=${expr.operand})`
                 break
             case AST_BINARY_EXPRESSION: {
-                const operator = this.printOperator(expr.operator)
+                const operator = this.printOperator(expr.operator.type)
                 content += `AST_BINARY_EXPRESSION (operator ${operator})`
                 console.log(content)
                 this.printExpression(expr.lhs, indent + 2)
@@ -445,7 +483,7 @@ class Parser {
                 return
             }
             case AST_UNARY_EXPRESSION: {
-                const operator = this.printOperator(expr.operator)
+                const operator = this.printOperator(expr.operator.type)
                 content += `AST_UNARY_EXPRESSION (operator ${operator})`
                 console.log(content)
                 this.printExpression(expr.expr, indent + 2)
@@ -503,7 +541,8 @@ class Parser {
         } else if (type === TOKEN_LITERAL) {
             this.eatToken(TOKEN_LITERAL)
             const { value, flags } = token.value
-            return this.makeNode(AST_LITERAL, { operand: value, flags })
+            const { column, line } = token
+            return this.makeNode(AST_LITERAL, { operand: value, flags, column, line })
         }
         this.throwError(`Expect a primary expression, but got ${tokenToString(token)}`, token)
     }
@@ -521,7 +560,7 @@ class Parser {
             let opToken = this.nextToken()
             const rightExpr = this.parseBinaryExpression(curPrecedence)
 
-            leftExpr = this.makeNode(AST_BINARY_EXPRESSION, { lhs: leftExpr, operator: opToken.type, rhs: rightExpr })
+            leftExpr = this.makeNode(AST_BINARY_EXPRESSION, { lhs: leftExpr, operator: opToken, rhs: rightExpr })
 
             opToken = this.peekToken()
             if (opToken.type === TOKEN_EOF || opToken.type === TOKEN_COMMA || opToken.type === TOKEN_RIGHT_PAREN) {
@@ -544,7 +583,7 @@ class Parser {
         const operator = this.nextToken()
         const expr = this.parseUnaryExpression()
 
-        return this.makeNode(AST_UNARY_EXPRESSION, { operator: operator.type, expr })
+        return this.makeNode(AST_UNARY_EXPRESSION, { operator: operator, expr })
     }
 
     getPrecedence(operator) {
