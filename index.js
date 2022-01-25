@@ -2,7 +2,7 @@
     TODO:
         1. 支持内置数学函数调用
         2. 支持声明变量，调用变量
-        3. 修复REPL模式下一旦输入出错直接结束程序的问题
+        3. 将解析器中求值相关函数解耦
 */
 
 const { program } = require('commander')
@@ -685,10 +685,12 @@ program
         })
         const parser = new Parser()
         interface.on('line', input => {
-             const exprs = parser.parse(input)
-             for (const expr of exprs) {
-                console.log(parser.evaluate(expr))
-             }
+            try {
+                const exprs = parser.parse(input)
+                for (const expr of exprs) {
+                    console.log(parser.evaluate(expr, true))
+                }
+            } catch (e) {}
         })
     })
 
