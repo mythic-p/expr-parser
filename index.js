@@ -2,6 +2,7 @@
     TODO:
         1. 支持内置数学函数调用
         2. 支持声明变量，调用变量
+        3. 修复REPL模式下一旦输入出错直接结束程序的问题
 */
 
 const { program } = require('commander')
@@ -25,7 +26,9 @@ const TOKEN_EOF = 0,
 
 // 字面量属性
 const LITERAL_FLAG_INTEGER = 0x01,
-    LITERAL_FLAG_DOUBLE = 0x02
+    LITERAL_FLAG_DOUBLE = 0x02,
+    LITERAL_FLAG_IDENTIFIER = 0x04,
+    LITERAL_FLAG_FUNCTION_CALL = 0x08
 
 // 语法树节点
 const AST_UNARY_EXPRESSION = 1,
@@ -399,21 +402,29 @@ class Parser {
     }
 
     // 根据抽象语法树计算表达式的值
-    evaluate(expression) {
+    evaluate(expression, isRoot = false) {
         switch (expression.type) {
             case AST_LITERAL: {
-                return expression
+                return isRoot ? expression.operand : expression
             }
             case AST_BINARY_EXPRESSION: {
                 const lhs = this.evaluate(expression.lhs)
                 const rhs = this.evaluate(expression.rhs)
                 const operator = expression.operator
-                return this.evaluateBinaryExpr(operator, lhs, rhs)
+                let result = this.evaluateBinaryExpr(operator, lhs, rhs)
+                if (isRoot) {
+                    return result.operand
+                }
+                return result
             }
             case AST_UNARY_EXPRESSION: {
                 const operand = this.evaluate(expression.expr)
                 const operator = expression.operator
-                return this.evaluateUnaryExpr(operator, operand)
+                const result = this.evaluateUnaryExpr(operator, operand)
+                if (isRoot) {
+                    return result.operand
+                }
+                return result
             }
             default:
                 throw 'Unreachable!'
@@ -425,44 +436,62 @@ class Parser {
             leftFlags = lhs.flags,
             rightOperand = rhs.operand,
             rightFlags = rhs.flags
+        let operand, flags
+        const isBothInteger = this.hasFlag(leftFlags, LITERAL_FLAG_INTEGER) && this.hasFlag(rightFlags, LITERAL_FLAG_INTEGER)
+        if (isBothInteger) {
+            flags = LITERAL_FLAG_INTEGER
+        } else {
+            flags = LITERAL_FLAG_DOUBLE
+        }
         switch (operator.type) {
             case TOKEN_PLUS:
-                return leftOperand + rightOperand
+                operand = leftOperand + rightOperand
+                break
             case TOKEN_MINUS:
-                return leftOperand - rightOperand
+                operand = leftOperand - rightOperand
+                break
             case TOKEN_ASTERISK:
-                return leftOperand * rightOperand
+                operand = leftOperand * rightOperand
+                break
             case TOKEN_SLASH: {
-                const isIntegerDivision = this.hasFlag(leftFlags, LITERAL_FLAG_INTEGER) && this.hasFlag(rightFlags, LITERAL_FLAG_INTEGER)
-                if (isIntegerDivision) {
-                    return (leftOperand / rightOperand) >>> 0                    
+                operand = leftOperand / rightOperand
+                if (isBothInteger) {
+                    operand >>>= 0
                 }
-                return leftOperand / rightOperand
+                break
             }
             case TOKEN_PERCENT: {
-                const lhsIsInteger = this.hasFlag(leftFlags, LITERAL_FLAG_INTEGER),
-                    rhsIsInteger = this.hasFlag(rightFlags, LITERAL_FLAG_INTEGER)
-                if (!lhsIsInteger || !rhsIsInteger) {
+                if (!isBothInteger) {
                     const lhsType = literalFlagsToString(leftFlags),
                         rhsType = literalFlagsToString(rightFlags)
                     this.throwNote(`The left-hand side value type is ${lhsType}`, lhs)
                     this.throwNote(`The right-hand side value type is ${rhsType}`, rhs)
                     this.throwError('Modulo operation can only apply on integer value!', operator)
                 }
-                return leftOperand % rightOperand
+                operand = leftOperand % rightOperand
+                break
             }
             default:
                 this.throwError(`Undefined binary operator: ${tokenToString(operator)}`, operator)
         }
+
+        const result = { operand, flags }
+
+        return result
     }
 
     evaluateUnaryExpr(operator, operand) {
+        const flags = operand.flags
+        let value
         switch (operator.type) {
             case TOKEN_MINUS:
-                return -1 * operand.operand
+                value = -1 * operand.operand
+                break
             default:
                 throw 'Undefined unary operator: ' + operator
         }
+
+        return { flags, operand: value }
     }
 
     printExpression(expr, indent = 0) {
@@ -583,7 +612,7 @@ class Parser {
         const operator = this.nextToken()
         const expr = this.parseUnaryExpression()
 
-        return this.makeNode(AST_UNARY_EXPRESSION, { operator: operator, expr })
+        return this.makeNode(AST_UNARY_EXPRESSION, { operator, expr })
     }
 
     getPrecedence(operator) {
@@ -604,7 +633,7 @@ const runTest = filepath => {
         expects.push(parseInt(match[1]))
     }
     for (let i = 0; i < exprs.length; i++) {
-        const value = parser.evaluate(exprs[i])
+        const value = parser.evaluate(exprs[i], true)
         if (value !== expects[i]) {
             console.log(`Test failed, Unexpected result: ${value}, expect: ${expects[i]}`)
             return false
@@ -623,7 +652,7 @@ program
         const content = fs.readFileSync(file, { encoding: 'utf-8' })
         const exprs = parser.parse(content)
         for (const expr of exprs) {
-            console.log(`Result is ${parser.evaluate(expr)}`)
+            console.log(`Result is ${parser.evaluate(expr, true)}`)
         }
     })
 
