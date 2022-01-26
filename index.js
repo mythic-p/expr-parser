@@ -19,9 +19,10 @@ const TOKEN_EOF = 0,
     TOKEN_LEFT_PAREN = 6,
     TOKEN_RIGHT_PAREN = 7,
     TOKEN_COMMA = 8,
-    TOKEN_VAR = 9,
-    TOKEN_LITERAL = 10,
-    TOKEN_IDENTIFIER = 11
+    TOKEN_ASSIGN = 9,
+    TOKEN_VAR = 10,
+    TOKEN_LITERAL = 11,
+    TOKEN_IDENTIFIER = 12
 
 // 字面量属性
 const LITERAL_FLAG_INTEGER = 0x01,
@@ -32,7 +33,8 @@ const AST_UNARY_EXPRESSION = 1,
     AST_BINARY_EXPRESSION = 2,
     AST_LITERAL = 3,
     AST_IDENTIFIER = 4,
-    AST_FUNCTION_CALL = 5
+    AST_FUNCTION_CALL = 5,
+    AST_VARIABLE_DECLARATION = 6
 
 // 操作符优先级
 // 优先级是对于双目运算符来说
@@ -61,6 +63,11 @@ const BUILTIN_FNS = {
     'pow': Math.pow
 }
 
+// 关键字 -> 词元类型映射表
+const KEYWORD_MAPPING = {
+    'var': TOKEN_VAR
+}
+
 // 将值转换成对应的字符串内容
 // value可以是词元对象，也可以词元的类型
 // 如果输入的是词元类型，则需要设置isType为true
@@ -82,6 +89,8 @@ const tokenToString = (value, isType = false) => {
             return '('
         case TOKEN_RIGHT_PAREN:
             return ')'
+        case TOKEN_ASSIGN:
+            return '='
         case TOKEN_LITERAL: {
             const { value } = value.value
             return value
@@ -257,21 +266,17 @@ class Parser {
     }
 
     parse(source) {
-        const expressions = []
+        const statements = []
         this.source = source
         this.reporter.loadLineInfo(source)
         this.resetState()
         let token = this.peekToken()
         while (token.type !== TOKEN_EOF) {
-            if (token.type === TOKEN_COMMA) {
-                this.eatToken(TOKEN_COMMA)
-            } else {
-                const expr = this.parseExpression()
-                expressions.push(expr)
-            }
+            const statement = this.parseStatement()
             token = this.peekToken()
+            statements.push(statement)
         }
-        return expressions
+        return statements
     }
 
     resetState() {
@@ -321,6 +326,11 @@ class Parser {
             const commaToken = this.makeToken(TOKEN_COMMA)
             this.curColumn++
             return commaToken
+        } else if (char === '=') {
+            this.curPointer++
+            const assignToken = this.makeToken(TOKEN_ASSIGN)
+            this.curColumn++
+            return assignToken
         }
         throw 'Unknown character: ' + char
     }
@@ -361,6 +371,10 @@ class Parser {
         }
 
         return /^[a-zA-Z0-9_]$/.test(character)
+    }
+
+    isKeyword(type) {
+        return type >= TOKEN_VAR && type < TOKEN_LITERAL
     }
 
     nextNumberLiteral() {
@@ -423,7 +437,18 @@ class Parser {
         this.curPointer += count
         this.curColumn += count
 
+        // 标识符有可能是关键字，尝试转换成关键字专门的词元类型
+        this.matchKeyword(token)
+
         return token
+    }
+
+    matchKeyword(token) {
+        const name = token.value
+        const mappedType = KEYWORD_MAPPING[name]
+        if (mappedType) {
+            token.type = mappedType
+        }
     }
 
     eatToken(type) {
@@ -570,39 +595,48 @@ class Parser {
         return { operand: result, column, line, flags: LITERAL_FLAG_DOUBLE }
     }
 
-    printExpression(expr, indent = 0) {
+    printStatement(statement, indent = 0) {
         let content = ''
         for (let i = 0; i < indent; i++) {
             content += ' '
         }
-        switch (expr.type) {
+        switch (statement.type) {
             case AST_LITERAL:
-                content += `AST_LITERAL (value=${expr.operand})`
+                content += `AST_LITERAL (value=${statement.operand})`
                 break
             case AST_BINARY_EXPRESSION: {
-                const operator = this.printOperator(expr.operator.type)
+                const operator = this.printOperator(statement.operator.type)
                 content += `AST_BINARY_EXPRESSION (operator ${operator})`
                 console.log(content)
-                this.printExpression(expr.lhs, indent + 2)
-                this.printExpression(expr.rhs, indent + 2)
+                this.printStatement(statement.lhs, indent + 2)
+                this.printStatement(statement.rhs, indent + 2)
                 return
             }
             case AST_UNARY_EXPRESSION: {
-                const operator = this.printOperator(expr.operator.type)
+                const operator = this.printOperator(statement.operator.type)
                 content += `AST_UNARY_EXPRESSION (operator ${operator})`
                 console.log(content)
-                this.printExpression(expr.expr, indent + 2)
+                this.printStatement(statement.expr, indent + 2)
                 return
             }
             case AST_IDENTIFIER:
-                content += `AST_IDENTIFIER (value=${expr.value})`
+                content += `AST_IDENTIFIER (value=${statement.value})`
                 break
             case AST_FUNCTION_CALL: {
-                const { value } = expr.identifier
-                content += `AST_FUNCTION_CALL (name=${value}, num_args=${expr.arguments.length})`
+                const { value } = statement.identifier
+                content += `AST_FUNCTION_CALL (name=${value}, num_args=${statement.arguments.length})`
                 console.log(content)
-                for (const arg of expr.arguments) {
-                    this.printExpression(arg, indent + 2)
+                for (const arg of statement.arguments) {
+                    this.printStatement(arg, indent + 2)
+                }
+                return
+            }
+            case AST_VARIABLE_DECLARATION: {
+                const { value } = statement.identifier
+                content += `AST_VARIABLE_DECLARATION (variable=${value})`
+                console.log(content)
+                if (statement.initializer) {
+                    this.printStatement(statement.initializer, indent + 2)
                 }
                 return
             }
@@ -639,6 +673,40 @@ class Parser {
         return node
     }
 
+    // Statement ->
+    // Binary Expression ',' |
+    // Variable Declaration ',' |
+    // ','
+    parseStatement() {
+        const token = this.peekToken()
+        if (token.type === TOKEN_COMMA) {
+            this.eatToken(TOKEN_COMMA)
+        } else if (this.isKeyword(token.type)) {
+            switch (token.type) {
+                case TOKEN_VAR:
+                    return this.parseVariableDeclaration()
+                default:
+                    throw ''
+            }
+        }
+        return this.parseExpression()
+    }
+
+    parseVariableDeclaration() {
+        this.eatToken(TOKEN_VAR)
+        const identifier = this.eatToken(TOKEN_IDENTIFIER),
+            forwardToken = this.peekToken()
+        let initializer = null
+        if (forwardToken.type === TOKEN_ASSIGN) {
+            this.eatToken(TOKEN_ASSIGN)
+            initializer = this.parseExpression()
+        }
+
+        const variableDecl = this.makeNode(AST_VARIABLE_DECLARATION, { identifier, initializer })
+
+        return variableDecl
+    }
+
     // 解析表达式
     parseExpression(precedence = 0) {
         return this.parseBinaryExpression(precedence)
@@ -646,6 +714,7 @@ class Parser {
 
     // Primary expression ->
     // '(' expression ')' |
+    // Function Call |
     // LITERAL
     parsePrimaryExpression() {  
         const token = this.peekToken()
@@ -674,6 +743,9 @@ class Parser {
         this.throwError(`Expect a primary expression, but got ${tokenToString(token)}`, token)
     }
 
+    // Binary Expression ->
+    // Unary-Expression |
+    // Binary-Expression OPERATOR Binary-Expression
     parseBinaryExpression(precedence = 0) {
         let leftExpr = this.parseUnaryExpression()
 
@@ -702,6 +774,9 @@ class Parser {
         return leftExpr
     }
 
+    // Unary-Expression ->
+    // Primary-Expression |
+    // UNARY-OPERATOR Unary-Expression
     parseUnaryExpression() {
         const token = this.peekToken()
         if (token.type !== TOKEN_MINUS) {
@@ -713,6 +788,10 @@ class Parser {
         return this.makeNode(AST_UNARY_EXPRESSION, { operator, expr })
     }
 
+    // Function-Call ->
+    // IDENTIFIER '(' Function-Arguments? ')'
+    // Function-Arguments ->
+    // Expression (',' Expression)*
     parseFunctionCall(identifier) {
         this.eatToken(TOKEN_LEFT_PAREN)
         const args = []
@@ -774,7 +853,7 @@ program
         const exprs = parser.parse(content)
         for (const expr of exprs) {
             if (options.printOnly) {
-                parser.printExpression(expr)
+                parser.printStatement(expr)
             } else {
                 console.log(`Result is ${parser.evaluate(expr, true)}`)
             }
