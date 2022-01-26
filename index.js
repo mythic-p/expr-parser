@@ -108,10 +108,11 @@ const literalFlagsToString = flags => {
 
 // 错误报告器
 class Reporter {
-    constructor() {
+    constructor(filepath) {
         // 记录每一行的开始索引，用于打印信息
         this.linesInfo = null
         this.notes = []
+        this.filename = path.basename(filepath)
     }
 
     reportError(column, line, error) {
@@ -136,7 +137,7 @@ class Reporter {
         }
         arrowStr += '^'
         console.log(arrowStr)
-        console.log(`todo:${line}:${column}: ${label}: ${message}\n`)
+        console.log(`${this.filename}:${line}:${column}: ${label}: ${message}\n`)
         if (interrupt) {
             for (const note of this.notes) {
                 this.reportInfo('note', note.column, note.line, note.message)
@@ -217,9 +218,9 @@ class Interpreter {
 
 // 解析器
 class Parser {
-    constructor() {
+    constructor(filepath) {
         this.source = null
-        this.reporter = new Reporter()
+        this.reporter = new Reporter(filepath)
         this.resetState()
     }
 
@@ -742,7 +743,7 @@ class Parser {
 }
 
 const runTest = filepath => {
-    const parser = new Parser()
+    const parser = new Parser(filepath)
     const content = fs.readFileSync(filepath, { encoding: 'utf-8' })
     const exprs = parser.parse(content)
     const matches = content.matchAll(/expect:\s*(-?\d+)/g)
@@ -768,7 +769,7 @@ program
     .version('0.0.1')
     .action(file => {
         const options = program.opts()
-        const parser = new Parser()
+        const parser = new Parser(file)
         const content = fs.readFileSync(file, { encoding: 'utf-8' })
         const exprs = parser.parse(content)
         for (const expr of exprs) {
@@ -807,7 +808,7 @@ program
             input: process.stdin,
             output: process.stdout
         })
-        const parser = new Parser()
+        const parser = new Parser('./temp')
         interface.on('line', input => {
             try {
                 const exprs = parser.parse(input)
