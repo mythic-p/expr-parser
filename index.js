@@ -1,8 +1,7 @@
 /*
     TODO:
-        1. 支持内置数学函数调用
-        2. 支持声明变量，调用变量
-        3. 将解析器中求值相关函数解耦
+        1. 支持声明变量，调用变量
+        2. 将解析器中求值相关函数解耦
 */
 
 const { program } = require('commander')
@@ -55,10 +54,11 @@ const OPERATOR_TABLE = {
 }
 
 // 内置数学函数
-const builtinFns = {
+const BUILTIN_FNS = {
     'cos': Math.cos,
     'sin': Math.sin,
     'sqrt': Math.sqrt,
+    'pow': Math.pow
 }
 
 // 将值转换成对应的字符串内容
@@ -476,6 +476,15 @@ class Parser {
                 }
                 return result
             }
+            case AST_FUNCTION_CALL: {
+                const { identifier, arguments: args } = expression
+                const result = this.evaluateFunctionCall(identifier, args)
+                if (isRoot) {
+                    return result.operand
+                }
+
+                return result
+            }
             default:
                 throw 'Unreachable!'
         }
@@ -542,6 +551,22 @@ class Parser {
         }
 
         return { flags, operand: value }
+    }
+
+    evaluateFunctionCall(identifier, params) {
+        const { value: name, column, line } = identifier
+        const calledFn = BUILTIN_FNS[name]
+        if (!calledFn) {
+            this.throwError(`Undefined function name: ${name}`, identifier)
+        }
+        const args = []
+        for (const param of params) {
+            const arg = this.evaluate(param, true)
+            args.push(arg)
+        }
+        const result = calledFn.apply(this, args)
+
+        return { operand: result, column, line, flags: LITERAL_FLAG_DOUBLE }
     }
 
     printExpression(expr, indent = 0) {
