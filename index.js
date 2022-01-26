@@ -26,14 +26,14 @@ const TOKEN_EOF = 0,
 
 // 字面量属性
 const LITERAL_FLAG_INTEGER = 0x01,
-    LITERAL_FLAG_DOUBLE = 0x02,
-    LITERAL_FLAG_IDENTIFIER = 0x04,
-    LITERAL_FLAG_FUNCTION_CALL = 0x08
+    LITERAL_FLAG_DOUBLE = 0x02
 
 // 语法树节点
 const AST_UNARY_EXPRESSION = 1,
     AST_BINARY_EXPRESSION = 2,
-    AST_LITERAL = 3
+    AST_LITERAL = 3,
+    AST_IDENTIFIER = 4,
+    AST_FUNCTION_CALL = 5
 
 // 操作符优先级
 // 优先级是对于双目运算符来说
@@ -83,11 +83,15 @@ const tokenToString = (value, isType = false) => {
         case TOKEN_RIGHT_PAREN:
             return ')'
         case TOKEN_LITERAL: {
-            const { value } = token.value
+            const { value } = value.value
             return value
         }
         case TOKEN_EOF:
             return '<EOF>'
+        case TOKEN_VAR:
+            return 'var'
+        case TOKEN_IDENTIFIER:
+            return value.value
         default:
             throw 'Unimplemented token: ' + value
     }
@@ -178,7 +182,38 @@ class Reporter {
 }
 
 // 解释器
-class Interpreter {}
+class Interpreter {
+    constructor() {
+        this.variables = new Map()
+    }
+
+    resetState() {}
+
+    interpret(statement, isRoot = false) {
+        let result
+
+        switch (statement.type) {
+            case AST_LITERAL: {
+
+                break
+            }
+            case AST_BINARY_EXPRESSION:
+                break
+            case AST_UNARY_EXPRESSION:
+                break
+        }
+
+        return result
+    }
+
+    interpretLiteral(literal) {}
+
+    interpretBinaryExpression(binaryExpr) {}
+
+    interpretUnaryExpression(unaryExpr) {}
+
+    interpretFunctionCall(functionCall) {}
+}
 
 // 解析器
 class Parser {
@@ -372,7 +407,22 @@ class Parser {
     }
 
     nextIdentifier() {
-        // TODO
+        let count = 1,
+            char = this.source.charAt(this.curPointer + 1)
+        const column = this.curColumn, line = this.curLine
+
+        while (this.isIdentifier(char)) {
+            count++
+            char = this.source.charAt(this.curPointer + count)
+        }
+
+        const identifier = this.source.substr(this.curPointer, count)
+        const token = this.makeToken(TOKEN_IDENTIFIER, identifier)
+
+        this.curPointer += count
+        this.curColumn += count
+
+        return token
     }
 
     eatToken(type) {
@@ -518,6 +568,18 @@ class Parser {
                 this.printExpression(expr.expr, indent + 2)
                 return
             }
+            case AST_IDENTIFIER:
+                content += `AST_IDENTIFIER (value=${expr.value})`
+                break
+            case AST_FUNCTION_CALL: {
+                const { value } = expr.identifier
+                content += `AST_FUNCTION_CALL (name=${value}, num_args=${expr.arguments.length})`
+                console.log(content)
+                for (const arg of expr.arguments) {
+                    this.printExpression(arg, indent + 2)
+                }
+                return
+            }
             default:
                 throw 'Unreachable!'
         }
@@ -572,6 +634,16 @@ class Parser {
             const { value, flags } = token.value
             const { column, line } = token
             return this.makeNode(AST_LITERAL, { operand: value, flags, column, line })
+        } else if (type === TOKEN_IDENTIFIER) {
+            this.eatToken(TOKEN_IDENTIFIER)
+            const forwardToken = this.peekToken()
+            const { value, column, line } = token
+
+            if (forwardToken.type === TOKEN_LEFT_PAREN) {
+                return this.parseFunctionCall(token)
+            }
+
+            return this.makeNode(AST_IDENTIFIER, { value, column, line })
         }
         this.throwError(`Expect a primary expression, but got ${tokenToString(token)}`, token)
     }
@@ -615,6 +687,27 @@ class Parser {
         return this.makeNode(AST_UNARY_EXPRESSION, { operator, expr })
     }
 
+    parseFunctionCall(identifier) {
+        this.eatToken(TOKEN_LEFT_PAREN)
+        const args = []
+        let forwardToken = this.peekToken(),
+            isFirstArgument = true
+        while (forwardToken.type !== TOKEN_RIGHT_PAREN) {
+            if (!isFirstArgument) {
+                this.eatToken(TOKEN_COMMA)
+            }
+            const arg = this.parseExpression()
+            forwardToken = this.peekToken()
+            isFirstArgument = false
+            args.push(arg)
+        }
+        this.eatToken(TOKEN_RIGHT_PAREN)
+
+        const functionCall = this.makeNode(AST_FUNCTION_CALL, { identifier, arguments: args })
+
+        return functionCall
+    }
+
     getPrecedence(operator) {
         if (!(operator in PRECEDENCE_TABLE)) {
             return -1
@@ -646,13 +739,19 @@ const runTest = filepath => {
 program
     .argument('<file>', 'expression file to parse')
     .option('-v, --verbose', 'Output every detail when parsing expression.')
+    .option('-p, --print-only', 'Print expression only, not evaluate it.')
     .version('0.0.1')
     .action(file => {
+        const options = program.opts()
         const parser = new Parser()
         const content = fs.readFileSync(file, { encoding: 'utf-8' })
         const exprs = parser.parse(content)
         for (const expr of exprs) {
-            console.log(`Result is ${parser.evaluate(expr, true)}`)
+            if (options.printOnly) {
+                parser.printExpression(expr)
+            } else {
+                console.log(`Result is ${parser.evaluate(expr, true)}`)
+            }
         }
     })
 

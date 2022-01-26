@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node . exp.txt",
     "test": "node . test",
-    "repl": "node . repl"
+    "repl": "node . repl",
+    "print": "node . exp.txt -p"
   },
   "dependencies": {
     "commander": "^8.3.0"
